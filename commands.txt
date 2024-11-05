@@ -1,0 +1,18 @@
+terraform graph -type=plan -draw-cycles
+terraform graph -type=plan -draw-cycles | dot -Tpng > tf_cycle.png 
+
+split(".", local.leaf4.ip)
+split(".", local.leaf4.ip)[2]
+
+local.squashed
+
+[ for o in local.fabric_inventory : o.name ]
+{ for o in local.fabric_inventory : o.name }
+local.fabric_inventory[*].name
+{ for key, value in local.fabric_inventory : key => value }
+{ for key, value in local.fabric_inventory[*] : key => value }
+[ for value in local.fabric_inventory : value.role ]
+{ for key, value in local.fabric_inventory : "roles" => value.role... }
+{ for key, value in local.fabric_inventory[*] : key => value if value.role == "spine" }
+
+{ for i in local.demo_vrfs : "demo-${i}" => i }
