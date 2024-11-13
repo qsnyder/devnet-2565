@@ -15,4 +15,6 @@ local.fabric_inventory[*].name
 { for key, value in local.fabric_inventory : "roles" => value.role... }
 { for key, value in local.fabric_inventory[*] : key => value if value.role == "spine" }
 
+leafs = { for key, value in local.fabric_inventory[*] : key => value if value.role == "spine" }
+
 { for i in local.demo_vrfs : "demo-${i}" => i }
