@@ -22,17 +22,20 @@ resource "aci_tenant" "terraform_tenant" {
 
 # Tenant VRF (CTX)
 resource "aci_vrf" "terraform_vrf" {
-    tenant_dn   = aci_tenant.terraform_tenant.id
+    parent_dn   = aci_tenant.terraform_tenant.id
     description = "${var.tenant.name} VRF"
     name        = "${var.tenant.name}-vrf"
 }
 
 # Tenant CTX's BD
 resource "aci_bridge_domain" "terraform_bd" {
-    tenant_dn          = aci_tenant.terraform_tenant.id
-    relation_fv_rs_ctx = aci_vrf.terraform_vrf.id
-    description        = "${var.tenant.name} BD for ${aci_vrf.terraform_vrf.name}"
-    name               = "${var.tenant.name}-bd"
+    parent_dn   = aci_tenant.terraform_tenant.id
+    description = "${var.tenant.name} BD for ${aci_vrf.terraform_vrf.name}"
+    name        = "${var.tenant.name}-bd"
+
+    relation_to_vrf = {
+        vrf_name = aci_vrf.terraform_vrf.name
+    }
 }
 
 # Tenant BD's subnet

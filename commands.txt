@@ -1,20 +1,106 @@
 terraform graph -type=plan -draw-cycles
-terraform graph -type=plan -draw-cycles | dot -Tpng > tf_cycle.png 
+terraform graph -type=plan -draw-cycles | dot -Tpng > tf_cycle.png
 
+# Console reads the config once at startup -- exit and relaunch after editing main.tf
+terraform -chdir=03-manipulation console
+# Non-interactive: pipe an expression in, pipe JSON out to other tools
+echo 'local.fabric_inventory[*].name' | terraform -chdir=03-manipulation console
+echo 'jsonencode(local.fabric_inventory)' | terraform -chdir=03-manipulation console | jq -r . | jq '.[] | select(.role == "leaf")'
+
+# ---------- 01-simple-interrogation ----------
+# type() only exists inside the console
+type(local.leaf4)
+keys(local.leaf4)
 split(".", local.leaf4.ip)
 split(".", local.leaf4.ip)[2]
+tonumber(split(".", local.leaf4.ip)[3]) + 1
+join(".", slice(split(".", local.leaf4.ip), 0, 3))
+"${join(".", slice(split(".", local.leaf4.ip), 0, 3))}.0/24"
+replace(local.leaf4.ip, "/\\.\\d+$/", ".1")
+cidrhost("${local.leaf4.ip}/24", 1)
+regex("^(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)$", local.leaf4.ip)
+can(regex("^10\\.", local.leaf4.ip))
+"${local.session_id}-${lower(local.fabric.name)}"
+format("%s-%s-%03d", local.session_id, local.leaf4.role, 4)
+local.leaf4.role == "leaf" ? "access" : "core"
+# Safe access to keys that don't exist
+lookup(local.leaf4, "vlan", 100)
+try(local.leaf4.vlan, "no vlan set")
+merge(local.leaf4, { role = "border", vlan = 100 })
+# Strip or mask secrets before showing an object
+{ for k, v in local.leaf4 : k => v if k != "password" }
+# merge keeps every key and only swaps in the masked password; a new object keeps just the keys you list
+merge(local.user, { password = sensitive(local.user.password) })
+{ username = local.user.username, password = sensitive(local.user.password) }
+jsonencode(local.fabric)
+yamlencode(local.leaf4)
+# String template directives (for / if) inside an interpolated string
+"%{ for k, v in local.fabric }${k}=${v} %{ endfor }"
+"%{ if local.leaf4.role == "leaf" }${local.leaf4.ip} is a leaf%{ else }not a leaf%{ endif }"
 
+# ---------- 02-locals-testing ----------
+local.list_of_maps[*].values
+flatten(local.list_of_maps[*].values)
+distinct(flatten(local.list_of_maps[*].values))
+# Build the nested loop step by step: without flatten, then with it
+[ for e in local.list_of_maps : [ for v in e.values : "${e.name}-${v}" ] ]
+flatten([ for e in local.list_of_maps : [ for v in e.values : "${e.name}-${v}" ] ])
 local.squashed
+length(local.squashed)
+# Turn the flat list into a map with unique keys so it can drive for_each
+{ for o in local.squashed : "${o.item_value}-${o.item_name}" => o }
+# List to map, then invert it two ways: grouping (...) and transpose()
+{ for m in local.list_of_maps : m.name => m.values }
+{ for o in local.squashed : o.item_name => o.item_value... }
+transpose({ for m in local.list_of_maps : m.name => m.values })
+[ for m in local.list_of_maps : m.name if contains(m.values, "C") ]
+setproduct(local.list_of_maps[*].name, ["dev", "prod"])
 
+# ---------- 03-manipulation ----------
+# tuple vs list
+type(local.fabric_inventory)
+type(tolist(local.fabric_inventory))
+local.fabric_inventory[0]
 [ for o in local.fabric_inventory : o.name ]
-{ for o in local.fabric_inventory : o.name }
 local.fabric_inventory[*].name
+# Fails on purpose: an object for needs key => value
+{ for o in local.fabric_inventory : o.name }
+# Keyed by list index (keys turn into "0", "1", ...) vs. by name (stable keys for for_each)
 { for key, value in local.fabric_inventory : key => value }
-{ for key, value in local.fabric_inventory[*] : key => value }
+{ for o in local.fabric_inventory : o.name => o }
+{ for o in local.fabric_inventory : o.name => o.ip }
+zipmap(local.fabric_inventory[*].name, local.fabric_inventory[*].ip)
+{ for o in local.fabric_inventory : o.name => o }["leaf2"].ip
+[ for i, o in local.fabric_inventory : "${i}: ${o.name}" ]
+# Filtering
 [ for value in local.fabric_inventory : value.role ]
+distinct(local.fabric_inventory[*].role)
+[ for o in local.fabric_inventory : o.name if o.role == "leaf" ]
+{ for o in local.fabric_inventory : o.name => o if o.role == "spine" }
+# Grouping (...): the key expression decides the buckets
 { for key, value in local.fabric_inventory : "roles" => value.role... }
-{ for key, value in local.fabric_inventory[*] : key => value if value.role == "spine" }
-
-leafs = { for key, value in local.fabric_inventory[*] : key => value if value.role == "spine" }
-
+{ for o in local.fabric_inventory : o.role => o.name... }
+{ for role, names in { for o in local.fabric_inventory : o.role => o.name... } : role => length(names) }
+# Per-element string interpolation and manipulation
+[ for o in local.fabric_inventory : "${local.session_id}-${o.name}" ]
+{ for o in local.fabric_inventory : o.name => tonumber(split(".", o.ip)[3]) }
+# Trailing ... expands a list into separate function arguments
+max([ for o in local.fabric_inventory : tonumber(split(".", o.ip)[3]) ]...)
+formatlist("%-7s %s", local.fabric_inventory[*].name, local.fabric_inventory[*].ip)
+join(", ", local.fabric_inventory[*].name)
+"%{ for o in local.fabric_inventory }${o.name} ${o.ip}\n%{ endfor }"
+# Derive and add attributes per element
+{ for o in local.fabric_inventory : o.name => o.role == "spine" ? "route-reflector" : "rr-client" }
+[ for o in local.fabric_inventory : merge(o, { fqdn = "${o.name}.${local.session_id}.lab" }) ]
+# VRFs: index-derived IDs and name cleanup
 { for i in local.demo_vrfs : "demo-${i}" => i }
+{ for i, v in local.demo_vrfs : v => { vlan = 2000 + i, vni = 50000 + i } }
+[ for v in local.demo_vrfs : lower(replace(v, "_", "-")) ]
+# Attach every VRF to every leaf: same map built with setproduct and with nested for + flatten
+setproduct(local.demo_vrfs, [ for o in local.fabric_inventory : o.name if o.role == "leaf" ])
+{ for p in setproduct(local.demo_vrfs, [ for o in local.fabric_inventory : o.name if o.role == "leaf" ]) : "${p[0]}/${p[1]}" => { vrf = p[0], switch = p[1] } }
+{ for a in flatten([ for v in local.demo_vrfs : [ for o in local.fabric_inventory : { vrf = v, switch = o.name } if o.role == "leaf" ] ]) : "${a.vrf}/${a.switch}" => a }
+# Paste into main.tf in place of leafs = {} (filter on "leaf", key by name), relaunch console, then check
+leafs = { for o in local.fabric_inventory : o.name => o if o.role == "leaf" }
+local.leafs
+keys(local.leafs)

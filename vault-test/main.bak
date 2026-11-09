@@ -1,0 +1,39 @@
+terraform {
+  required_providers {
+    vault = {
+      source  = "hashicorp/vault"
+      version = "~> 4.0"
+    }
+  }
+}
+
+# Address and token come from VAULT_ADDR / VAULT_TOKEN env vars
+provider "vault" {}
+
+variable "kv_mount" {
+  type    = string
+  default = "kv"
+}
+
+variable "secret_name" {
+  type    = string
+  default = "cml-prod"
+}
+
+data "vault_kv_secret_v2" "creds" {
+  mount = var.kv_mount
+  name  = var.secret_name
+}
+
+output "key-name" {
+  value = nonsensitive(var.secret_name)
+}
+
+output "username" {
+  value = nonsensitive(data.vault_kv_secret_v2.creds.data["username"])
+}
+
+output "password" {
+  value = nonsensitive(data.vault_kv_secret_v2.creds.data["password"])
+}
+

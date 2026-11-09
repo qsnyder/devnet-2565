@@ -1,0 +1,56 @@
+terraform graph -type=plan -draw-cycles
+terraform graph -type=plan -draw-cycles | dot -Tpng > tf_cycle.png 
+
+
+# ---------- 01-simple-interrogation ----------
+type(local.leaf4)
+keys(local.leaf4)
+split(".", local.leaf4.ip)
+split(".", local.leaf4.ip)[2]
+tonumber(split(".", local.leaf4.ip)[3]) + 1
+cidrhost("${local.leaf4.ip}/24", 1)
+local.leaf4.role == "leaf" ? "access" : "core"
+
+# merge keeps every key and only swaps in the masked password; a new object keeps just the keys you list
+merge(local.user, { password = sensitive(local.user.password) })
+{ username = local.user.username, password = sensitive(local.user.password) }
+
+jsonencode(local.leaf4)
+yamlencode(local.leaf4)
+
+# ---------- 02-locals-testing ----------
+local.list_of_maps[*].values
+flatten(local.list_of_maps[*].values)
+distinct(flatten(local.list_of_maps[*].values))
+
+local.squashed
+# Turn the flat list into a map with unique keys so it can drive for_each
+{ for o in local.squashed : "${o.item_value}-${o.item_name}" => o }
+
+# Output of the name if the value contains a given character
+[ for m in local.list_of_maps : m.name if contains(m.values, "C") ]
+
+# ---------- 03-manipulation ----------
+terraform -chdir=03-manipulation console
+echo 'local.fabric_inventory[*].name' | terraform -chdir=03-manipulation console
+echo 'jsonencode(local.fabric_inventory)' | terraform -chdir=03-manipulation console | jq -r . | jq '.[] | select(.role == "leaf")'
+
+local.fabric_inventory[0]
+
+# Fails on purpose: an object for needs key => value
+{ for o in local.fabric_inventory : o.name }
+# Keyed by list index (keys turn into "0", "1", ...) vs. by name (stable keys for for_each)
+{ for key, value in local.fabric_inventory : key => value }
+
+# Remap key name to number (as above in squashed example, output operates on entire object "o")
+{ for o in local.fabric_inventory : o.name => o }
+# Gather specific key within object "o" and assigning to a given key name from same object)
+{ for o in local.fabric_inventory : o.name => o.ip }
+
+# VRFs: index-derived IDs and name cleanup
+{ for i in local.demo_vrfs : "demo-${i}" => i }
+{ for i, v in local.demo_vrfs : v => { vlan = 2000 + i, vni = 50000 + i } }
+[ for v in local.demo_vrfs : lower(replace(v, "_", "-")) ]
+
+# Designed to fail, no runtime assignments of variables within console
+leafs = { for key, value in local.fabric_inventory[*] : key => value if value.role == "leaf" }
